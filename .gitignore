@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+.DS_Store
+
+.pytest_cache/
+.mypy_cache/
+
+logs/
+outputs/
+
+# Data and experiment artifacts
+paper_data/
+paper_runs*/
+daily_report_runs/
+daily_report_logs/
+logs_*/
+outputs_*/
+live_signals/
+guba_coverage_reports/
+
+# Secrets
+.env
+**/.env
+*.env
+
+# Model checkpoints and large binary artifacts
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.joblib

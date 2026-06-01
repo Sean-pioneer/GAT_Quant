@@ -1,0 +1,19 @@
+# PyTorch and PyTorch Geometric
+torch>=2.0.0
+torch-geometric>=2.4.0
+
+# Scientific computing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+
+# Visualization (optional)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Testing
+pytest>=7.0.0
