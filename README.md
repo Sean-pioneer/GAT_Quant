@@ -90,9 +90,9 @@
 | 数据 | 路径 | 说明 |
 |---|---|---|
 | 日频价格 | `/opt/price/{sh\|sz}.{code}.csv` | 收盘价、涨跌幅、PB 等 |
-| tushare 因子 | `/opt/tushare_factors/{code}.csv` | overnight_corr、roe、turnover_20d |
-| 研报 LLM 面板 | `paper_data/paper_event_panel.csv` | 每行一条研报事件，含 5 维 LLM 打分 |
-| 股票池 | `--universe_csv` 传入的 CSV | CSI1000 成分股列表 |
+| tushare 因子 | `/opt/tushare_factors/{code}.csv` | overnight_corr、roe、turnover_20d（从 2022 年起） |
+| 研报 LLM 面板 | `/opt/paper_event_panel.csv` | 每行一条研报事件，含 5 维 LLM 打分 |
+| 股票池 | `./data/csi1000.csv` | CSI1000 成分股列表 |
 | 行业映射 | `data/stock_industry.csv` | 股票代码 → 申万行业，用于构造 sector 节点 |
 
 ### 3.2 股票过滤（`_select_universe`）
@@ -209,9 +209,9 @@ Step 2: MLP 预测
 
 ```bash
 python train_daily_report.py \
-    --panel_csv ./paper_data/paper_event_panel.csv \
+    --panel_csv /opt/paper_event_panel.csv \
     --price_dir /opt/price \
-    --universe_csv ./guba_coverage_reports/csi1000_20260331/csi1000_constituents_20260331.csv \
+    --universe_csv ./data/csi1000.csv \
     --num_stocks 1000 \
     --target_horizon 60 \
     --price_lookback 60 \
@@ -221,6 +221,7 @@ python train_daily_report.py \
     --feature_mode market_report \
     --graph_mode full \
     --selection_mode report_count \
+    --start_date 2022-01-01 \
     --epochs 30 \
     --batch_size 1 \
     --hidden_dim 256 \
@@ -228,7 +229,7 @@ python train_daily_report.py \
     --num_layers 2 \
     --dropout 0.2 \
     --lr 1e-4 \
-    --loss_type mse \
+    --loss_type ic \
     --device cuda \
     --output_dir ./outputs_daily_report \
     --log_dir ./logs_daily_report \
@@ -239,15 +240,20 @@ python train_daily_report.py \
 
 ```bash
 python train_daily_report.py \
-    --panel_csv ./paper_data/paper_event_panel.csv \
+    --panel_csv /opt/paper_event_panel.csv \
     --price_dir /opt/price \
-    --universe_csv ./guba_coverage_reports/csi1000_20260331/csi1000_constituents_20260331.csv \
-    --num_stocks 50 \
-    --epochs 3 \
-    --batch_size 2 \
+    --universe_csv ./data/csi1000.csv \
+    --num_stocks 128 \
+    --target_horizon 60 \
+    --price_lookback 60 \
+    --corr_threshold 0.3 \
+    --start_date 2022-01-01 \
+    --epochs 15 \
+    --batch_size 1 \
     --hidden_dim 64 \
     --num_heads 2 \
-    --dropout 0.0 \
+    --num_layers 2 \
+    --loss_type ic \
     --device cuda \
     --output_dir ./smoke_test_out \
     --log_dir ./smoke_test_log
@@ -286,11 +292,10 @@ python train_daily_report.py \
 
 ```bash
 python ablation_llm.py \
-    --panel_csv ./paper_data/paper_event_panel.csv \
+    --panel_csv /opt/paper_event_panel.csv \
     --price_dir /opt/price \
-    --universe_csv ./guba_coverage_reports/csi1000_20260331/csi1000_constituents_20260331.csv \
-    --start_date 2021-01-01 \
-    --end_date 2024-12-31 \
+    --universe_csv ./data/csi1000.csv \
+    --start_date 2022-01-01 \
     --epochs 10 \
     --modes market_report market_only \
     --output_dir ./ablation_outputs
@@ -435,16 +440,16 @@ pip install pandas numpy scipy scikit-learn tqdm
 | 路径 | 说明 |
 |---|---|
 | `/opt/price/{sh\|sz}.{code}.csv` | 日频价格文件（每股一个 CSV） |
-| `/opt/tushare_factors/{code}.csv` | tushare 量化因子（由 `batch_fetch.py` 生成） |
-| `paper_data/paper_event_panel.csv` | 研报 LLM 打分面板（原始版本，不使用 denoised） |
+| `/opt/tushare_factors/{code}.csv` | tushare 量化因子（由 `batch_fetch.py` 生成，从 2022 年起） |
+| `/opt/paper_event_panel.csv` | 研报 LLM 打分面板（原始版本，不使用 denoised） |
 | `data/stock_industry.csv` | 股票行业映射表 |
-| CSI1000 成分股 CSV | 传入 `--universe_csv` |
+| `data/csi1000.csv` | CSI1000 成分股列表（传入 `--universe_csv`） |
 
 新机器复现训练的准备顺序：
 
 1. 准备 `/opt/price/`
-2. 运行 `batch_fetch.py` 生成 `/opt/tushare_factors/`
+2. 运行 `batch_fetch.py` 生成 `/opt/tushare_factors/`（从 2022-01-01 起）
 3. 运行 `pad_factor_data.py` 补全停牌日
-4. 准备 `paper_data/paper_event_panel.csv` 和 CSI1000 成分股 CSV
-5. 准备 `data/stock_industry.csv`
-6. 运行 `train_daily_report.py`
+4. 准备 `/opt/paper_event_panel.csv`
+5. 准备 `data/stock_industry.csv` 和 `data/csi1000.csv`
+6. 运行 `train_daily_report.py`（加 `--start_date 2022-01-01`）
