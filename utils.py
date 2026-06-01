@@ -125,50 +125,37 @@ class QuasiLikelihoodLoss(nn.Module):
 
 class ICLoss(nn.Module):
     """
-    信息系数(IC)损失
-    
-    最大化预测值与真实收益率的秩相关性
-    适用于因子模型
+    信息系数(IC)损失 — 可微 Pearson 截面相关性损失
+
+    原 argsort 实现不可微，改为直接优化 Pearson 相关系数。
+    输入 [B, N] 时按行（每个样本日）计算截面 IC 再平均；
+    NaN 目标（无效 target_mask 位置）自动跳过。
     """
-    
-    def __init__(self):
-        super().__init__()
-    
+
     def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
-        """
-        计算IC损失（负的秩相关性）
-        
-        Args:
-            predictions: 预测值
-            targets: 目标值
-            
-        Returns:
-            负的IC值（用于最小化）
-        """
-        # 转换为秩
-        pred_ranks = self._rank(predictions)
-        target_ranks = self._rank(targets)
-        
-        # 计算相关性
-        pred_mean = pred_ranks.mean()
-        target_mean = target_ranks.mean()
-        
-        pred_centered = pred_ranks - pred_mean
-        target_centered = target_ranks - target_mean
-        
-        correlation = (pred_centered * target_centered).sum() / \
-                      (torch.sqrt((pred_centered ** 2).sum()) * 
-                       torch.sqrt((target_centered ** 2).sum()) + 1e-8)
-        
-        return -correlation  # 负号用于最小化
-    
+        if predictions.dim() == 2:
+            losses = []
+            for b in range(predictions.size(0)):
+                valid = targets[b].isfinite()
+                if valid.sum() < 3:
+                    continue
+                ic = self._pearson(predictions[b][valid], targets[b][valid])
+                if ic is not None:
+                    losses.append(-ic)
+            if not losses:
+                return predictions.sum() * 0.0
+            return torch.stack(losses).mean()
+        ic = self._pearson(predictions, targets)
+        return -ic if ic is not None else predictions.sum() * 0.0
+
     @staticmethod
-    def _rank(x: Tensor) -> Tensor:
-        """计算排名"""
-        sorted_indices = torch.argsort(x)
-        ranks = torch.zeros_like(x)
-        ranks[sorted_indices] = torch.arange(len(x), dtype=x.dtype, device=x.device)
-        return ranks
+    def _pearson(p: Tensor, t: Tensor) -> Optional[Tensor]:
+        p_c = p - p.mean()
+        t_c = t - t.mean()
+        denom = p_c.norm() * t_c.norm()
+        if denom.item() < 1e-8:
+            return None
+        return (p_c * t_c).sum() / denom
 
 
 def get_loss_function(loss_type: str = "mse") -> nn.Module:

@@ -32,6 +32,7 @@ from utils import (
     save_checkpoint,
     load_checkpoint,
     count_parameters,
+    ICLoss,
 )
 
 
@@ -111,9 +112,15 @@ class Trainer:
         targets: torch.Tensor,
         target_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if target_mask is None:
+        if isinstance(self.criterion, ICLoss):
+            # ICLoss 按行计算截面 IC，不能展平；用 NaN 标记无效位置让 ICLoss 内部跳过
+            if target_mask is not None:
+                targets = targets.clone()
+                targets[~target_mask.bool()] = float('nan')
             return self.criterion(predictions, targets)
 
+        if target_mask is None:
+            return self.criterion(predictions, targets)
         valid = target_mask.to(dtype=torch.bool)
         if valid.sum().item() == 0:
             return predictions.sum() * 0.0
