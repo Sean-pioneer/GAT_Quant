@@ -155,28 +155,18 @@ def main():
         batch_size=args.batch_size,
     )
     train_ds = train_loader.dataset
+    val_ds   = val_loader.dataset
+    test_ds  = test_loader.dataset
     print(
-        f"训练日期: {len(train_loader.dataset)}, "
-        f"验证日期: {len(val_loader.dataset)}, "
-        f"测试日期: {len(test_loader.dataset)}"
+        f"训练日期: {len(train_ds)}, "
+        f"验证日期: {len(val_ds)}, "
+        f"测试日期: {len(test_ds)}"
     )
     print(f"股票数: {train_ds.num_stocks}")
-    print(
-        f"日期范围: {train_ds.all_sample_dates[0].date()} "
-        f"to {train_ds.all_sample_dates[-1].date()}"
-    )
-    print(
-        f"训练切分: {train_ds.all_sample_dates[0].date()} "
-        f"to {train_ds.all_sample_dates[train_ds.train_end - 1].date()}"
-    )
-    print(
-        f"验证切分: {train_ds.all_sample_dates[train_ds.train_end].date()} "
-        f"to {train_ds.all_sample_dates[train_ds.val_end - 1].date()}"
-    )
-    print(
-        f"测试切分: {train_ds.all_sample_dates[train_ds.val_end].date()} "
-        f"to {train_ds.all_sample_dates[-1].date()}"
-    )
+    print(f"全量日期范围: {train_ds.all_sample_dates[0].date()} to {train_ds.all_sample_dates[-1].date()}")
+    print(f"训练切分: {train_ds.sample_dates[0].date()} to {train_ds.sample_dates[-1].date()}")
+    print(f"验证切分: {val_ds.sample_dates[0].date()} to {val_ds.sample_dates[-1].date()} (gap={data_config.target_horizon}d)")
+    print(f"测试切分: {test_ds.sample_dates[0].date()} to {test_ds.sample_dates[-1].date()} (gap={data_config.target_horizon}d)")
 
     sample_graph, sample_targets, sample_target_mask = next(iter(train_loader))
     print(f"样本标签形状: {tuple(sample_targets.shape)}")

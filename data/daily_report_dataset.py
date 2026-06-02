@@ -502,13 +502,20 @@ class DailyReportGraphDataset(Dataset):
         return candidates, train_end, val_end
 
     def _set_split_dates(self) -> None:
-        """按 split 从全量样本日期中截取当前切分的日期子集，赋值给 self.sample_dates。"""
+        """按 split 从全量样本日期中截取当前切分的日期子集，赋值给 self.sample_dates。
+
+        train/val 和 val/test 边界各留 target_horizon 个交易日的 gap，
+        避免训练/验证标签（shift(-horizon)）与后续集价格重叠造成泄漏。
+        """
+        gap = self.config.target_horizon
         if self.split == "train":
             self.sample_dates = self.all_sample_dates[: self.train_end]
         elif self.split == "val":
-            self.sample_dates = self.all_sample_dates[self.train_end : self.val_end]
+            start = min(self.train_end + gap, self.val_end)
+            self.sample_dates = self.all_sample_dates[start : self.val_end]
         elif self.split == "test":
-            self.sample_dates = self.all_sample_dates[self.val_end :]
+            start = min(self.val_end + gap, len(self.all_sample_dates))
+            self.sample_dates = self.all_sample_dates[start:]
         else:
             raise ValueError(f"unknown split: {self.split}")
         if not self.sample_dates:
