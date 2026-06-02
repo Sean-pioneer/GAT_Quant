@@ -396,6 +396,9 @@ class DailyReportGraphDataset(Dataset):
                 fac[["overnight_corr", "roe", "turnover_20d"]],
                 left_on="date", right_index=True, how="left",
             )
+            # 停牌日因子缺失，前向填充（停牌期间因子值变化极小）
+            for col in ["overnight_corr", "roe", "turnover_20d"]:
+                frame[col] = frame[col].ffill()
         else:
             frame["overnight_corr"] = np.nan
             frame["roe"] = np.nan

@@ -327,16 +327,7 @@ python batch_fetch.py \
 
 因子包含：`overnight_corr`（隔夜相关性）、`roe`（净资产收益率）、`turnover_20d`（20 日均换手率）、`value_bp`（账面市值比）。
 
-### 8.2 因子文件停牌日前向填充
-
-```bash
-python pad_factor_data.py \
-    --factor_dir /opt/tushare_factors \
-    --start 2022-01-01 \
-    --end 2026-01-01
-```
-
-### 8.3 数据完整性检查
+### 8.2 数据完整性检查
 
 ```bash
 python check_price_data.py \
@@ -429,7 +420,7 @@ pip install pandas numpy scipy scikit-learn tqdm
 | `tushare_client.py` | tushare 代理客户端 |
 | `factor_fetch.py` | 单股因子拉取 |
 | `batch_fetch.py` | CSI1000 批量因子拉取 |
-| `pad_factor_data.py` | 停牌日因子前向填充 |
+
 | `check_price_data.py` | 价格/因子文件完整性检查 |
 | `check_report_coverage.py` | 研报 LLM 对 CSI1000 的覆盖情况检查 |
 
@@ -449,7 +440,6 @@ pip install pandas numpy scipy scikit-learn tqdm
 
 1. 准备 `/opt/price/`
 2. 运行 `batch_fetch.py` 生成 `/opt/tushare_factors/`（从 2022-01-01 起）
-3. 运行 `pad_factor_data.py` 补全停牌日
-4. 准备 `/opt/paper_event_panel.csv`
-5. 准备 `data/stock_industry.csv` 和 `data/csi1000.csv`
-6. 运行 `train_daily_report.py`（加 `--start_date 2022-01-01`）
+3. 准备 `/opt/paper_event_panel.csv`
+4. 准备 `data/stock_industry.csv` 和 `data/csi1000.csv`
+5. 运行 `train_daily_report.py`（加 `--start_date 2022-01-01`）
