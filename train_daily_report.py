@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("--factor_dir", type=str, default="/opt/tushare_factors")
     parser.add_argument("--universe_csv", type=str, default="")
     parser.add_argument("--num_stocks", type=int, default=0, help="选股数量；0 表示使用全部可用股票")
-    parser.add_argument("--target_horizon", type=int, default=60)
+    parser.add_argument("--target_horizon", type=int, default=10)
     parser.add_argument("--price_lookback", type=int, default=60)
     parser.add_argument("--corr_top_k", type=int, default=4)
     parser.add_argument("--spill_top_k", type=int, default=4)
@@ -44,7 +44,12 @@ def parse_args():
         choices=["market_report", "market_only", "report_only"],
         help="日频特征开关：market_report=市场+研报；market_only=纯市场；report_only=只保留稀疏研报",
     )
-    parser.add_argument("--graph_mode", type=str, default="full", choices=["full", "no_stock_edges", "sector_style_only"])
+    parser.add_argument("--graph_mode", type=str, default="full", choices=["full", "no_stock_edges", "sector_style_only", "random_stock_edges"])
+    parser.add_argument("--edge_mode", type=str, default="fundamentals",
+                        choices=["returns", "fundamentals", "static"],
+                        help="stock-stock边构造：returns=收益相关 | fundamentals=基本面相似 | static=行业内全连接")
+    parser.add_argument("--llm_decay_days", type=int, default=30,
+                        help="LLM前向填充半衰期（交易日），0=不衰减")
     parser.add_argument("--selection_mode", type=str, default="report_count", choices=["report_count", "universe_order"])
     parser.add_argument("--start_date", type=str, default="")
     parser.add_argument("--end_date", type=str, default="")
@@ -65,8 +70,8 @@ def parse_args():
         default=0,
         help="每个样本日至少需要多少只股票有有效标签；0 表示默认使用 80% 股票数。",
     )
-    parser.add_argument("--batch_size", type=int, default=2)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--num_heads", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=2)
@@ -126,6 +131,8 @@ def main():
         spill_top_k=args.spill_top_k,
         corr_threshold=args.corr_threshold,
         graph_mode=args.graph_mode,
+        edge_mode=args.edge_mode,
+        llm_decay_days=args.llm_decay_days,
         feature_mode=args.feature_mode,
         selection_mode=args.selection_mode,
         start_date=args.start_date or None,

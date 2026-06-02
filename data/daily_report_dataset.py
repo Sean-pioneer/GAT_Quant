@@ -124,7 +124,9 @@ class DailyReportDataConfig:
     corr_top_k: int = 4          # 每只股票保留 top-k 相关性边
     spill_top_k: int = 4         # 每只股票保留 top-k 波动溢出边
     corr_threshold: float = 0.3  # 低于此绝对相关系数的边不建立，0.0 = 不过滤
-    graph_mode: str = "full"     # "full"|"no_stock_edges"|"sector_style_only"
+    graph_mode: str = "full"     # "full"|"no_stock_edges"|"sector_style_only"|"random_stock_edges"
+    edge_mode: str = "fundamentals"  # stock-stock边构造方式："returns"|"fundamentals"|"static"
+    llm_decay_days: int = 30        # LLM前向填充半衰期（交易日），0=不衰减
     feature_mode: str = "market_report"  # 消融用："market_report"|"market_only"|"report_only"
     selection_mode: str = "report_count" # 股票排序方式："report_count"|"universe_order"
     start_date: Optional[str] = None
@@ -462,6 +464,26 @@ class DailyReportGraphDataset(Dataset):
         for col in REPORT_LLM_FEATURES:
             daily[col] = daily.groupby("stock_code")[col].ffill()
 
+        # LLM 时间衰减：距上次研报越久，信号越弱
+        # score *= exp(-days_since_last_report / half_life_days)
+        half_life = getattr(self.config, 'llm_decay_days', 0)
+        if half_life > 0:
+            for code in self.stock_codes:
+                mask = daily["stock_code"] == code
+                idx = daily.index[mask]
+                has = daily.loc[mask, "has_report_llm"].gt(0.5).astype(int)
+                group_id = has.cumsum()
+                days_since = (
+                    daily.loc[mask]
+                    .groupby(group_id)
+                    .cumcount()
+                    .values
+                    .astype(np.float32)
+                )
+                decay = np.exp(-days_since / float(half_life))
+                for col in REPORT_LLM_FEATURES:
+                    daily.loc[idx, col] = daily.loc[idx, col].values * decay
+
         daily = daily.sort_values(["date", "stock_code"]).reset_index(drop=True)
         return daily, returns_by_code
 
@@ -658,7 +680,7 @@ class DailyReportGraphDataset(Dataset):
             corr_edges = _empty_edge_index()
             spill_edges = _empty_edge_index()
         else:
-            corr_edges, spill_edges = self._edges_for_date(stock_codes, date)
+            corr_edges, spill_edges = self._edges_for_date(stock_codes, date, stock_features)
         data["stock", "correlates_with", "stock"].edge_index = corr_edges
         data["stock", "spills_volatility_to", "stock"].edge_index = spill_edges
         data["stock"].y = torch.zeros(self.num_stocks, dtype=torch.float32)
@@ -668,15 +690,31 @@ class DailyReportGraphDataset(Dataset):
         self,
         stock_codes: Sequence[str],
         date: pd.Timestamp,
+        stock_features: np.ndarray,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """计算指定日期的相关性边和溢出边，结果按 (date, codes, graph_mode) 缓存。"""
-        key = (pd.Timestamp(date), tuple(stock_codes), self.config.graph_mode)
+        """按 edge_mode 分发建边逻辑；stock_features 供 fundamentals 模式使用。"""
+        key = (pd.Timestamp(date), tuple(stock_codes), self.config.graph_mode,
+               getattr(self.config, 'edge_mode', 'returns'))
         cached = self._edge_cache.get(key)
         if cached is not None:
             return cached
-        returns = self._return_matrix(stock_codes, date)
-        corr_edges = self._correlation_edges(returns, self.config.corr_top_k)
-        spill_edges = self._spillover_edges(returns, self.config.spill_top_k)
+
+        mode = getattr(self.config, 'edge_mode', 'returns')
+        top_k = self.config.corr_top_k
+
+        if self.config.graph_mode == "sector_style_only":
+            corr_edges = _empty_edge_index()
+            spill_edges = _empty_edge_index()
+        elif mode == 'static':
+            corr_edges = self._static_industry_edges(stock_codes, top_k)
+            spill_edges = _empty_edge_index()
+        elif mode == 'fundamentals':
+            corr_edges = self._feature_similarity_edges(stock_features, top_k)
+            spill_edges = _empty_edge_index()
+        else:  # 'returns' — 现有逻辑
+            returns = self._return_matrix(stock_codes, date)
+            corr_edges = self._correlation_edges(returns, top_k)
+            spill_edges = self._spillover_edges(returns, self.config.spill_top_k)
         self._edge_cache[key] = (corr_edges, spill_edges)
         return corr_edges, spill_edges
 
@@ -770,6 +808,60 @@ class DailyReportGraphDataset(Dataset):
         np.fill_diagonal(score, -np.inf)
         if self.config.corr_threshold > 0:
             score[score < self.config.corr_threshold] = -np.inf
+        return self._topk_edges(score, top_k)
+
+    # ── 正交基本面建边（替代 returns-based 动态连边） ──────────────────────
+
+    # 用于建边的正交特征索引：roe(6) + turnover(10) + pb(11) + board_onehot(13-17)
+    # = [6, 10, 11, 13, 14, 15, 16, 17]，共 8 维
+    # 排除 mom_20d/mom_60d/vol_20d/overnight_corr，与 target 信息不重叠
+    _EDGE_FEATURE_INDICES = [6, 10, 11, 13, 14, 15, 16, 17]
+
+    def _feature_similarity_edges(
+        self,
+        stock_features: np.ndarray,
+        top_k: int,
+    ) -> torch.Tensor:
+        """
+        基于正交基本面特征的余弦相似度建边。
+
+        使用 pb(估值)、roe(盈利)、turnover(流动性)、board(板块) 计算
+        股票之间的"交易结构相似度"。这些特征与动量/收益正交，
+        图结构不再和节点特征重叠。
+
+        边比 returns-based 更稳定——估值/盈利/板块不会每天剧变。
+        """
+        if stock_features.shape[0] <= 1 or top_k <= 0:
+            return _empty_edge_index()
+
+        idx = self._EDGE_FEATURE_INDICES
+        feats = stock_features[:, idx].astype(np.float64)
+
+        norm = np.linalg.norm(feats, axis=1, keepdims=True) + 1e-8
+        feats_normed = feats / norm
+        score = feats_normed @ feats_normed.T   # [N, N]
+
+        np.fill_diagonal(score, -np.inf)
+        return self._topk_edges(score, top_k)
+
+    def _static_industry_edges(
+        self,
+        stock_codes: Sequence[str],
+        top_k: int,
+    ) -> torch.Tensor:
+        """
+        纯行业内部全连接边：同一行业的股票两两互连，最多 top_k 条/只。
+        完全不用历史数据，无信息重叠，最可解释。
+        """
+        n = len(stock_codes)
+        if n <= 1 or top_k <= 0:
+            return _empty_edge_index()
+
+        sector_ids = np.array([self._sector_id(code) for code in stock_codes])
+        same_sector = sector_ids[:, None] == sector_ids[None, :]  # [N, N] bool
+        np.fill_diagonal(same_sector, False)
+
+        score = np.where(same_sector, 1.0, -np.inf)
         return self._topk_edges(score, top_k)
 
     def _topk_edges(self, score: np.ndarray, top_k: int) -> torch.Tensor:
